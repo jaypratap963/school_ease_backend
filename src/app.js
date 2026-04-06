@@ -58,6 +58,8 @@ app.use('/api/admin/analytics', adminAnalyticsRoutes);
 const admissionRoutes = require('./routes/admissions.routes');
 app.use('/api/admissions', admissionRoutes);
 
+app.use('/api/timetable', require('./routes/timetable.routes'));
+
 
 app.get('/', (req, res) => {
   res.send('SchoolEase Backend is running');
