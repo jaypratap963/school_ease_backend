@@ -58,18 +58,35 @@ exports.addTimetablePeriod = async (req, res) => {
   const client = await pool.connect();
 
   try {
+    if (
+      !timetable_id ||
+      !day_of_week ||
+      !period_no ||
+      !start_time ||
+      !end_time ||
+      !subject_id ||
+      !teacher_id
+    ) {
+      return res.status(400).json({ message: 'All fields are required' });
+    }
+
+    const start = start_time.length === 5 ? `${start_time}:00` : start_time;
+    const end = end_time.length === 5 ? `${end_time}:00` : end_time;
+
     await client.query('BEGIN');
 
-    // 1️⃣ Validate teacher-subject-class mapping
+    // ✅ FIXED mapping check
     const mappingCheck = await client.query(
       `SELECT 1
-       FROM teacher_subjects ts
-       JOIN timetables t ON t.class_id = ts.class_id
-       WHERE ts.teacher_id = $1
-         AND ts.subject_id = $2
-         AND t.id = $3
+       FROM timetables t
+       JOIN teacher_subjects ts 
+         ON ts.class_id = t.class_id
+       WHERE t.id = $1
+         AND t.school_id = $4
+         AND ts.teacher_id = $2
+         AND ts.subject_id = $3
          AND ts.school_id = $4`,
-      [teacher_id, subject_id, timetable_id, school_id]
+      [timetable_id, teacher_id, subject_id, school_id]
     );
 
     if (mappingCheck.rowCount === 0) {
@@ -79,31 +96,31 @@ exports.addTimetablePeriod = async (req, res) => {
       });
     }
 
-    // 2️⃣ Teacher conflict check
+    // ✅ safer conflict check
     const conflictCheck = await client.query(
       `SELECT 1
        FROM timetable_periods tp
        JOIN timetables t ON t.id = tp.timetable_id
+       JOIN timetables t2 ON t2.id = $2
        WHERE tp.teacher_id = $1
-         AND t.academic_session_id = (
-           SELECT academic_session_id FROM timetables WHERE id = $2
-         )
+         AND t.academic_session_id = t2.academic_session_id
          AND tp.day_of_week = $3
          AND ($4 < tp.end_time AND $5 > tp.start_time)`,
-      [teacher_id, timetable_id, day_of_week, start_time, end_time]
+      [teacher_id, timetable_id, day_of_week, start, end]
     );
 
     if (conflictCheck.rowCount > 0) {
       await client.query('ROLLBACK');
-      return res.status(409).json({ message: 'Teacher already has a class at this time' });
+      return res.status(409).json({
+        message: 'Teacher already has a class at this time'
+      });
     }
 
-    // 3️⃣ Insert period
     await client.query(
       `INSERT INTO timetable_periods
        (timetable_id, day_of_week, period_no, start_time, end_time, subject_id, teacher_id)
        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [timetable_id, day_of_week, period_no, start_time, end_time, subject_id, teacher_id]
+      [timetable_id, day_of_week, period_no, start, end, subject_id, teacher_id]
     );
 
     await client.query('COMMIT');
@@ -111,8 +128,8 @@ exports.addTimetablePeriod = async (req, res) => {
 
   } catch (err) {
     await client.query('ROLLBACK');
-    console.error('Add timetable period error:', err);
-    res.status(500).json({ message: 'Internal server error' });
+    console.error('Add timetable period error:', err.message, err.stack);
+    res.status(500).json({ message: err.message });
   } finally {
     client.release();
   }
