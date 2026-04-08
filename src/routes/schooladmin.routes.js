@@ -93,7 +93,7 @@ router.post(
 router.get(
   '/students/:classId',
   verifyToken,
-  allowRoles('school_admin'),
+  allowRoles('school_admin', 'teacher'),
   studentController.getStudentsByClass
 );
 
