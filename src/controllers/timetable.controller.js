@@ -156,17 +156,36 @@ exports.getClassTimetable = async (req, res) => {
 
 exports.getTeacherTimetable = async (req, res) => {
   const { academic_session_id } = req.query;
-  const teacher_id = req.user.id;
+  const user_id = req.user.id;
 
-  const result = await pool.query(
-    `SELECT tp.*
-     FROM timetable_periods tp
-     JOIN timetables t ON t.id = tp.timetable_id
-     WHERE tp.teacher_id = $1
-       AND t.academic_session_id = $2
-     ORDER BY day_of_week, start_time`,
-    [teacher_id, academic_session_id]
-  );
+  try {
+    // 🔥 Step 1: get teacher_id from user_id
+    const teacherResult = await pool.query(
+      `SELECT id FROM teachers WHERE user_id = $1`,
+      [user_id]
+    );
 
-  res.json(result.rows);
+    if (teacherResult.rowCount === 0) {
+      return res.status(404).json({ message: 'Teacher not found' });
+    }
+
+    const teacher_id = teacherResult.rows[0].id;
+
+    // 🔥 Step 2: fetch timetable
+    const result = await pool.query(
+      `SELECT tp.*
+       FROM timetable_periods tp
+       JOIN timetables t ON t.id = tp.timetable_id
+       WHERE tp.teacher_id = $1
+         AND t.academic_session_id = $2
+       ORDER BY day_of_week, start_time`,
+      [teacher_id, academic_session_id]
+    );
+
+    res.json(result.rows);
+
+  } catch (err) {
+    console.error('Teacher timetable error:', err);
+    res.status(500).json({ message: 'Internal server error' });
+  }
 };
